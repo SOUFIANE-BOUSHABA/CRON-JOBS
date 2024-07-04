@@ -21,9 +21,7 @@ class SendScheduledEmails extends Command
 
     public function handle()
     {
-        $batches = EmailBatch::where('status', 'pending')
-                             ->orWhere('status', 'in-progress')
-                             ->get();
+        $batches = EmailBatch::whereIn('status', ['pending', 'in-progress'])->get();
 
         foreach ($batches as $batch) {
             if ($batch->status == 'pending') {
@@ -36,44 +34,33 @@ class SendScheduledEmails extends Command
 
     protected function processBatch($batch)
     {
-        // Load the batch with its mail and associated email logs
-        $emailBatch = $batch->load('mail', 'emailLogs.profile');
-    
-        foreach ($emailBatch->emailLogs as $emailLog) {
-            $profile = Profile::findOrFail($emailLog->profile_id); // Fetch the profile
-    
-            // Send email using Mail facade
-            Mail::send([], [], function ($message) use ($emailBatch, $emailLog, $profile) {
+        $emailLogs = EmailLog::where('batch_id', $batch->id)->where('status', 'pending')->get();
+
+        foreach ($emailLogs as $emailLog) {
+            $profile = Profile::findOrFail($emailLog->profile_id);
+
+            Mail::send([], [], function ($message) use ($batch, $profile) {
                 $message->to($profile->email)
-                    ->subject($emailBatch->mail->subject)
-                    ->setBody($emailBatch->mail->Emailbody, 'text/html');
+                        ->subject($batch->mail->subject)
+                        ->setBody($batch->mail->Emailbody, 'text/html');
             });
-    
+
             $emailLog->status = 'sent';
             $emailLog->sent_at = now();
             $emailLog->save();
-    
-            sleep($emailBatch->interval_minutes * 60); 
+
+            sleep($batch->interval_minutes * 60); // Wait for the specified interval
         }
-    
+
         $batch->quantity--;
-        if ($batch->quantity == 0) {
+
+        if ($batch->quantity > 0) {
+            $batch->status = 'in-progress';
+          
+        }
+        if($batch->quantity == 0){
             $batch->status = 'completed';
         }
-       
         $batch->save();
-    }
-    
-
-    protected function sendEmail($emailLog)
-    {
-        $mail = $emailLog->batch->mail;
-        $profile = $emailLog->profile;
-
-        Mail::send([], [], function ($message) use ($mail, $profile) {
-            $message->to($profile->email)
-                ->subject($mail->subject)
-                ->setBody($mail->Emailbody, 'text/html');
-        });
     }
 }

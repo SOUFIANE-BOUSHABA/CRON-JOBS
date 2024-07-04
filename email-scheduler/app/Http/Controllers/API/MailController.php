@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
@@ -20,7 +21,8 @@ class MailController extends Controller
             'attachedFile' => 'nullable|string',
             'quantity' => 'required|integer|min:1',
             'interval_minutes' => 'required|integer|min:1',
-            'profile_id' => 'required|exists:profiles,id',
+            'profile_id' => 'required|array',
+            'profile_id.*' => 'exists:profiles,id',
         ]);
 
         $mail = Mail::create([
@@ -38,39 +40,17 @@ class MailController extends Controller
             'status' => 'pending',
         ]);
 
-        $profile = Profile::findOrFail($validatedData['profile_id']);
-        $this->sendEmailsToProfile($mail, $emailBatch, $profile);
+        foreach ($validatedData['profile_id'] as $profileId) {
+            EmailLog::create([
+                'batch_id' => $emailBatch->id,
+                'profile_id' => $profileId,
+                'status' => 'pending',
+            ]);
+        }
 
         return response()->json([
             'mail' => $mail,
             'emailBatch' => $emailBatch,
         ], 201);
-    }
-
-    protected function sendEmailsToProfile($mail, $emailBatch, $profile)
-    {
-        for ($i = 0; $i < $emailBatch->quantity; $i++) {
-            $this->sendEmail($mail, $profile);
-            sleep($emailBatch->interval_minutes * 60); // Wait for the specified interval
-        }
-
-        $emailBatch->status = 'completed';
-        $emailBatch->save();
-    }
-
-    protected function sendEmail($mail, $profile)
-    {
-        \Illuminate\Support\Facades\Mail::send([], [], function ($message) use ($mail, $profile) {
-            $message->to($profile->email)
-                ->subject($mail->subject)
-                ->setBody($mail->Emailbody, 'text/html');
-        });
-
-        EmailLog::create([
-            'batch_id' => $mail->emailBatches()->first()->id, // Assuming one batch per email for simplicity
-            'profile_id' => $profile->id,
-            'status' => 'sent',
-            'sent_at' => now(),
-        ]);
     }
 }
